@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduGenie | AI Learning Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+    <div class="page">
+        <header class="hero">
+            <div class="brand">
+                <div class="logo">E</div>
+                <div>
+                    <h1>EduGenie</h1>
+                    <p>Google Gemini Powered Learning Assistant</p>
+                </div>
+            </div>
+            <span class="status">● AI READY</span>
+        </header>
+
+        <main>
+            <section class="intro">
+                <p class="eyebrow">LEARN • PRACTICE • UNDERSTAND</p>
+                <h2>Your personal AI study companion.</h2>
+                <p>
+                    Ask questions, simplify difficult concepts, create quizzes,
+                    summarize notes, or build a learning path.
+                </p>
+            </section>
+
+            <section class="card">
+                <label for="task">Choose a task</label>
+                <select id="task">
+                    <option value="qa">Ask a Question</option>
+                    <option value="explain">Explain a Topic</option>
+                    <option value="quiz">Generate Quiz</option>
+                    <option value="summarize">Summarize Text</option>
+                    <option value="learn">Learning Path</option>
+                </select>
+
+                <label for="inputText" id="inputLabel">Your question</label>
+                <textarea id="inputText" rows="9"
+                    placeholder="Example: What is photosynthesis?"></textarea>
+
+                <button id="submitBtn" onclick="runTask()">
+                    <span id="buttonText">Generate Answer</span>
+                    <span id="spinner" class="spinner hidden"></span>
+                </button>
+            </section>
+
+            <section id="resultSection" class="card result-card hidden">
+                <div class="result-header">
+                    <h3>EduGenie Result</h3>
+                    <button class="copy-btn" onclick="copyResult()">Copy</button>
+                </div>
+                <div id="result"></div>
+            </section>
+        </main>
+
+        <footer>
+            EduGenie • FastAPI + Google Gemini
+        </footer>
+    </div>
+
+<script>
+const task = document.getElementById("task");
+const input = document.getElementById("inputText");
+const label = document.getElementById("inputLabel");
+const buttonText = document.getElementById("buttonText");
+
+const taskInfo = {
+    qa: {
+        label: "Your question",
+        placeholder: "Example: Why is the sky blue?",
+        button: "Get Answer"
+    },
+    explain: {
+        label: "Topic to explain",
+        placeholder: "Example: Explain the Pythagoras theorem for a beginner.",
+        button: "Explain Topic"
+    },
+    quiz: {
+        label: "Topic or passage for the quiz",
+        placeholder: "Paste a lesson, paragraph, or topic here...",
+        button: "Generate Quiz"
+    },
+    summarize: {
+        label: "Text to summarize",
+        placeholder: "Paste your educational notes or passage here...",
+        button: "Summarize"
+    },
+    learn: {
+        label: "Topic for your learning path",
+        placeholder: "Example: Learn SQL from beginner to advanced.",
+        button: "Build Learning Path"
+    }
+};
+
+task.addEventListener("change", updateTask);
+updateTask();
+
+function updateTask() {
+    const info = taskInfo[task.value];
+    label.textContent = info.label;
+    input.placeholder = info.placeholder;
+    buttonText.textContent = info.button;
+}
+
+async function runTask() {
+    const value = input.value.trim();
+    const resultBox = document.getElementById("result");
+    const resultSection = document.getElementById("resultSection");
+    const spinner = document.getElementById("spinner");
+    const btn = document.getElementById("submitBtn");
+
+    if (!value) {
+        resultSection.classList.remove("hidden");
+        resultBox.innerHTML = '<div class="error">Please enter something first.</div>';
+        return;
+    }
+
+    const endpoint = {
+        qa: "/qa",
+        explain: "/explain",
+        quiz: "/quiz",
+        summarize: "/summarize",
+        learn: "/learn/recommendations"
+    }[task.value];
+
+    btn.disabled = true;
+    spinner.classList.remove("hidden");
+    buttonText.textContent = "Thinking...";
+    resultSection.classList.remove("hidden");
+    resultBox.innerHTML = '<div class="loading">EduGenie is preparing your answer...</div>';
+
+    try {
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({text: value})
+        });
+
+        const rawText = await response.text();
+        let data = null;
+
+        try {
+            data = rawText ? JSON.parse(rawText) : null;
+        } catch {
+            throw new Error(rawText || "Request failed.");
+        }
+
+        if (!response.ok) {
+            throw new Error(data?.detail || rawText || "Request failed.");
+        }
+
+        if (task.value === "quiz" && Array.isArray(data.result)) {
+            renderQuiz(data.result);
+        } else {
+            renderText(data.result);
+        }
+    } catch (error) {
+        resultBox.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+    } finally {
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+        buttonText.textContent = taskInfo[task.value].button;
+    }
+}
+
+function renderText(text) {
+    const resultBox = document.getElementById("result");
+    const formatted = escapeHtml(String(text))
+        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+        .replace(/^### (.*)$/gm, "<h4>$1</h4>")
+        .replace(/^## (.*)$/gm, "<h3>$1</h3>")
+        .replace(/\n/g, "<br>");
+    resultBox.innerHTML = `<div class="answer">${formatted}</div>`;
+}
+
+function renderQuiz(questions) {
+    const resultBox = document.getElementById("result");
+    resultBox.innerHTML = questions.map((q, index) => `
+        <div class="quiz-question">
+            <h4>${index + 1}. ${escapeHtml(q.question)}</h4>
+            <div class="options">
+                ${q.options.map(option => `
+                    <button class="option"
+                        onclick="checkAnswer(this, ${JSON.stringify(option)}, ${JSON.stringify(q.answer)})">
+                        ${escapeHtml(option)}
+                    </button>
+                `).join("")}
+            </div>
+            <p class="quiz-feedback"></p>
+        </div>
+    `).join("");
+}
+
+function checkAnswer(button, selected, answer) {
+    const question = button.closest(".quiz-question");
+    const feedback = question.querySelector(".quiz-feedback");
+    question.querySelectorAll(".option").forEach(b => b.disabled = true);
+
+    if (selected === answer) {
+        button.classList.add("correct");
+        feedback.textContent = "Correct!";
+        feedback.className = "quiz-feedback correct-text";
+    } else {
+        button.classList.add("wrong");
+        feedback.textContent = `Not quite. Correct answer: ${answer}`;
+        feedback.className = "quiz-feedback wrong-text";
+        question.querySelectorAll(".option").forEach(b => {
+            if (b.textContent.trim() === answer) b.classList.add("correct");
+        });
+    }
+}
+
+function copyResult() {
+    const result = document.getElementById("result").innerText;
+    navigator.clipboard.writeText(result);
+}
+
+function escapeHtml(value) {
+    return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+</script>
+</body>
+</html>
